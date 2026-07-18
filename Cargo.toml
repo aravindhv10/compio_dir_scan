@@ -4,5 +4,8 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-compio = { version = "0.19.1", features = ["all"] }
-tokio = { version = "1.53.0", features = ["full"] }
+blake3 = { version = "1", features = ["mmap", "digest", "rayon", "serde"] }
+compio = { version = "0", features = ["all"] }
+crossfire = { version = "3", features = ["tokio"] }
+jwalk = "0"
+tokio = { version = "1", features = ["full"] }
