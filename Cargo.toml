@@ -1,0 +1,8 @@
+[package]
+name = "compio_dir_scan"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+compio = { version = "0.19.1", features = ["all"] }
+tokio = { version = "1.53.0", features = ["full"] }
