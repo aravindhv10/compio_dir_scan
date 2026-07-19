@@ -2,32 +2,28 @@ use anyhow::{Context, anyhow};
 use gst::prelude::*;
 use gstreamer as gst;
 use gstreamer_app as gst_app;
-use gstreamer_video as gst_video;
-use std::sync::Arc;
-use std::sync::Mutex;
 
-pub async fn decode_video_to_rgb(
+pub fn decode_video_to_rgb(
     video_bytes: Vec<u8>,
-    fps: f32,
     size_x: u16,
     size_y: u16,
 ) -> anyhow::Result<Vec<u8>> {
-    // 1. Initialize GStreamer (safe to call multiple times)
+    // 1. Initialize GStreamer
     gst::init()?;
 
     // 2. Define the pipeline description string.
-    // We use appsrc named 'mysrc' and appsink named 'mysink' to interact with them in code.
+    // We disable emit-signals since we are pulling frames synchronously.
     let pipeline_str = format!(
         "appsrc name=mysrc block=true max-bytes=104857600 ! \
          typefind ! \
          decodebin ! \
          videorate ! \
-         video/x-raw,fps={}/1 ! \
+         video/x-raw,framerate=8/1 ! \
          videoconvert ! \
          videoscale ! \
          video/x-raw,format=RGB,width={},height={} ! \
-         appsink name=mysink sync=false emit-signals=true",
-        fps as i32, size_x, size_y
+         appsink name=mysink sync=false emit-signals=false",
+        size_x, size_y
     );
 
     // 3. Parse the pipeline from the string descriptor
@@ -49,72 +45,66 @@ pub async fn decode_video_to_rgb(
         .map_err(|_| anyhow!("Failed to cast to AppSink"))?;
 
     // 5. Push the memory buffer into appsrc
-    // We wrap the Vec into a GStreamer Buffer object
     let buffer = gst::Buffer::from_mut_slice(video_bytes);
     appsrc.push_buffer(buffer)?;
-    appsrc.end_of_stream()?; // Inform the pipeline no more bytes are coming
+    appsrc.end_of_stream()?; // Signals EOF to the execution pipeline
 
-    // 6. Setup thread-safe vector to accumulate raw pixel bytes asynchronously
-    let output_buffer = Arc::new(Mutex::new(Vec::new()));
-    let output_buffer_clone = Arc::clone(&output_buffer);
+    // 6. Allocate a standard, local vector for frame byte gathering
+    let mut final_rgb_data = Vec::new();
 
-    // 7. Configure the appsink callback to intercept decoded frames
-    appsink.set_callbacks(
-        gst_app::AppSinkCallbacks::builder()
-            .new_sample(move |sink| {
-                let sample = sink.pull_sample().map_err(|_| gst::FlowError::Eos)?;
-                let sample_buffer = sample.buffer().ok_or(gst::FlowError::Error)?;
-
-                // Map the GStreamer internal buffer memory directly into memory space
-                let map = sample_buffer
-                    .map_readable()
-                    .map_err(|_| gst::FlowError::Error)?;
-
-                let mut lock = output_buffer_clone.lock().unwrap();
-                lock.extend_from_slice(map.as_slice());
-
-                Ok(gst::FlowSuccess::Ok)
-            })
-            .build(),
-    );
-
-    // 8. Start the pipeline execution
+    // 7. Start the pipeline execution
     pipeline.set_state(gst::State::Playing)?;
 
-    // 9. Await processing completion via the GStreamer Bus
-    let bus = pipeline.bus().context("Pipeline contains no bus")?;
+    // 8. Pull frames sequentially out of the appsink channel.
+    // This loop terminates automatically when GStreamer propagates an internal End-of-Stream (EOS).
+    while let Ok(sample) = appsink.pull_sample() {
+        if let Some(sample_buffer) = sample.buffer() {
+            // Map the internal C-buffer elements directly into Rust safe memory spaces
+            let map = sample_buffer
+                .map_readable()
+                .map_err(|_| anyhow!("Failed to map GStreamer buffer memory"))?;
 
-    // Using spawn_blocking since bus monitoring blocks the executing thread
-    tokio::task::spawn_blocking(move || -> anyhow::Result<()> {
-        for msg in bus.iter_timed(gst::ClockTime::NONE) {
-            use gst::MessageView;
-            match msg.view() {
-                MessageView::Eos(_) => break, // Successful end of processing loop
-                MessageView::Error(err) => {
-                    return Err(anyhow!(
-                        "GStreamer Error: {} ({:?})",
-                        err.error(),
-                        err.debug()
-                    ));
-                }
-                _ => {}
-            }
+            final_rgb_data.extend_from_slice(map.as_slice());
         }
-        Ok(())
-    })
-    .await??;
+    }
 
-    // 10. Clean up pipeline state and return ownership of the linear RGB vector
+    // 9. Inspect the Bus to ensure the pipeline terminated due to normal EOS
+    // rather than an active parsing runtime error.
+    let bus = pipeline.bus().context("Pipeline contains no status bus")?;
+    if let Some(msg) = bus.pop_filtered(&[gst::MessageType::Error, gst::MessageType::Eos]) {
+        use gst::MessageView;
+        if let MessageView::Error(err) = msg.view() {
+            // Safe pipeline teardown before bubbling up the failure
+            let _ = pipeline.set_state(gst::State::Null);
+            return Err(anyhow!(
+                "GStreamer execution failure: {} ({:?})",
+                err.error(),
+                err.debug()
+            ));
+        }
+    }
+
+    // 10. Tear down the structural pipeline components gracefully
     pipeline.set_state(gst::State::Null)?;
 
-    let final_data = Arc::try_unwrap(output_buffer)
-        .map_err(|_| anyhow!("Mutex binding references still held"))?
-        .into_inner()?;
-
-    Ok(final_data)
+    Ok(final_rgb_data)
 }
 
-#[compio::main]
-async fn main() -> std::io::Result<()> {
-    Ok(())
+fn main() {
+    let res = std::fs::read("./video.mp4");
+    match res {
+        Ok(o) => {
+            match decode_video_to_rgb(
+                /*video_bytes: Vec<u8> =*/ o,
+                /*size_x: u16 =*/ 1280 as u16,
+                /*size_y: u16 =*/ 720 as u16,
+            ) {
+                Ok(q) => {
+                    println!("{}", q.len());
+                }
+                Err(e) => {}
+            };
+        }
+        Err(e) => {}
+    };
 }
