@@ -45,7 +45,6 @@ impl VideoReader {
             .dynamic_cast::<gst_app::AppSink>()
             .map_err(|_| anyhow!("Failed to cast to AppSink"))?;
 
-        // 5. Start the pipeline FIRST
         pipeline.set_state(gst::State::Playing)?;
 
         let buffer = gst::Buffer::from_slice(video_bytes);
@@ -53,11 +52,34 @@ impl VideoReader {
         appsrc.push_buffer(buffer)?;
         appsrc.end_of_stream()?;
 
-        // 7. Calculate single frame byte size & pre-allocate output vector
-        let frame_size = (width * height * 3) as usize; // RGB = 3 bytes/pixel
+        const frame_size: usize = 1280 * 720 * 3;
         let mut final_rgb_data = Vec::with_capacity(frame_size * 8 * 15); // Pre-reserve 15 seconds @ 8FPS
 
-        Ok(())
+        // 8. Pull frames from appsink
+        while let Ok(sample) = appsink.pull_sample() {
+            if let Some(sample_buffer) = sample.buffer() {
+                let map = sample_buffer
+                    .map_readable()
+                    .map_err(|_| anyhow!("Failed to map GStreamer buffer memory"))?;
+
+                final_rgb_data.extend_from_slice(map.as_slice());
+            }
+        }
+
+        // 9. Check Bus for runtime errors
+        if let Some(bus) = pipeline.bus() {
+            if let Some(msg) = bus.pop_filtered(&[gst::MessageType::Error, gst::MessageType::Eos]) {
+                if let gst::MessageView::Error(err) = msg.view() {
+                    return Err(anyhow!(
+                        "GStreamer pipeline error: {} ({:?})",
+                        err.error(),
+                        err.debug()
+                    ));
+                }
+            }
+        }
+
+        Ok(final_rgb_data)
     }
 }
 
