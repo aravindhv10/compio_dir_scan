@@ -17,12 +17,13 @@ struct VideoReader {
 }
 
 impl VideoReader {
-    pub fn new() -> Self {
+    pub fn new() -> anyhow::Result<Self> {
+        gst::init()?;
         let pipeline_str = include_str!("pipeline_str.txt").to_string();
 
-        Self {
+        Ok(Self {
             pipeline_str: pipeline_str,
-        }
+        })
     }
 
     pub fn decode_video(&self, video_bytes: Vec<u8>) -> anyhow::Result<Vec<u8>> {
@@ -164,11 +165,11 @@ pub fn decode_video_to_rgb(video_bytes: &[u8], width: u32, height: u32) -> anyho
 }
 
 fn main() -> anyhow::Result<()> {
-    let reader = VideoReader::new();
+    let reader = VideoReader::new()?;
 
     let video_bytes = std::fs::read("./video.mp4").context("Failed to read video file")?;
 
-    let decoded_frame = reader.decode_video(video_bytes)?;
+    let rgb_data = reader.decode_video(video_bytes)?;
 
     // let rgb_data = decode_video_to_rgb(&video_bytes, 1280, 720)?;
 
