@@ -18,17 +18,7 @@ struct VideoReader {
 
 impl VideoReader {
     fn new() -> Self {
-        let pipeline_str = format!(
-            "appsrc name=mysrc block=true max-bytes=104857600 ! \
-            typefind ! \
-            decodebin ! \
-            videorate ! \
-            video/x-raw,framerate=8/1 ! \
-            videoconvert ! \
-            videoscale ! \
-            video/x-raw,format=RGB,width=1280,height=720 ! \
-            appsink name=mysink sync=false emit-signals=false"
-        );
+        let pipeline_str = include_str!("pipeline_str.txt").to_string();
 
         Self {
             pipeline_str: pipeline_str,
