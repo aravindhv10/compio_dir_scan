@@ -52,8 +52,8 @@ impl VideoReader {
         appsrc.push_buffer(buffer)?;
         appsrc.end_of_stream()?;
 
-        const frame_size: usize = 1280 * 720 * 3;
-        let mut final_rgb_data = Vec::with_capacity(frame_size * 8 * 15); // Pre-reserve 15 seconds @ 8FPS
+        const FRAME_SIZE: usize = 1280 * 720 * 3;
+        let mut final_rgb_data = Vec::with_capacity(FRAME_SIZE * 8 * 15); // Pre-reserve 15 seconds @ 8FPS
 
         // 8. Pull frames from appsink
         while let Ok(sample) = appsink.pull_sample() {
