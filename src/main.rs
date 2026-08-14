@@ -3,16 +3,46 @@ use gst::prelude::*;
 use gstreamer as gst;
 use gstreamer_app as gst_app;
 
-pub fn decode_video_to_rgb(
-    video_bytes: Vec<u8>,
-    size_x: u16,
-    size_y: u16,
-) -> anyhow::Result<Vec<u8>> {
+/// Guard struct to ensure GStreamer pipeline is shut down on drop (RAII)
+struct PipelineGuard<'a>(&'a gst::Pipeline);
+
+impl<'a> Drop for PipelineGuard<'a> {
+    fn drop(&mut self) {
+        let _ = self.0.set_state(gst::State::Null);
+    }
+}
+
+struct VideoReader {
+    pipeline_str: String,
+}
+
+impl VideoReader {
+    fn new() -> Self {
+        let pipeline_str = format!(
+            "appsrc name=mysrc block=true max-bytes=104857600 ! \
+            typefind ! \
+            decodebin ! \
+            videorate ! \
+            video/x-raw,framerate=8/1 ! \
+            videoconvert ! \
+            videoscale ! \
+            video/x-raw,format=RGB,width=1280,height=720 ! \
+            appsink name=mysink sync=false emit-signals=false"
+        );
+
+        Self {
+            pipeline_str: pipeline_str,
+        }
+    }
+
+    fn decode_video() {}
+}
+
+pub fn decode_video_to_rgb(video_bytes: &[u8], width: u32, height: u32) -> anyhow::Result<Vec<u8>> {
     // 1. Initialize GStreamer
     gst::init()?;
 
-    // 2. Define the pipeline description string.
-    // We disable emit-signals since we are pulling frames synchronously.
+    // 2. Define pipeline string
     let pipeline_str = format!(
         "appsrc name=mysrc block=true max-bytes=104857600 ! \
          typefind ! \
@@ -23,43 +53,45 @@ pub fn decode_video_to_rgb(
          videoscale ! \
          video/x-raw,format=RGB,width={},height={} ! \
          appsink name=mysink sync=false emit-signals=false",
-        size_x, size_y
+        width, height
     );
 
-    // 3. Parse the pipeline from the string descriptor
+    // 3. Parse pipeline
     let pipeline = gst::parse::launch(&pipeline_str)?
         .dynamic_cast::<gst::Pipeline>()
         .map_err(|_| anyhow!("Failed to cast element to Pipeline"))?;
 
-    // 4. Extract references to our source and sink components
+    // RAII guard guarantees set_state(Null) on function exit or early return
+    let _guard = PipelineGuard(&pipeline);
+
+    // 4. Extract handles
     let appsrc = pipeline
         .by_name("mysrc")
-        .context("Failed to find appsrc in pipeline")?
+        .context("Failed to find appsrc")?
         .dynamic_cast::<gst_app::AppSrc>()
         .map_err(|_| anyhow!("Failed to cast to AppSrc"))?;
 
     let appsink = pipeline
         .by_name("mysink")
-        .context("Failed to find appsink in pipeline")?
+        .context("Failed to find appsink")?
         .dynamic_cast::<gst_app::AppSink>()
         .map_err(|_| anyhow!("Failed to cast to AppSink"))?;
 
-    // 5. Push the memory buffer into appsrc
-    let buffer = gst::Buffer::from_mut_slice(video_bytes);
-    appsrc.push_buffer(buffer)?;
-    appsrc.end_of_stream()?; // Signals EOF to the execution pipeline
-
-    // 6. Allocate a standard, local vector for frame byte gathering
-    let mut final_rgb_data = Vec::new();
-
-    // 7. Start the pipeline execution
+    // 5. Start the pipeline FIRST
     pipeline.set_state(gst::State::Playing)?;
 
-    // 8. Pull frames sequentially out of the appsink channel.
-    // This loop terminates automatically when GStreamer propagates an internal End-of-Stream (EOS).
+    // 6. Push buffer AFTER pipeline is playing
+    let buffer = gst::Buffer::from_slice(video_bytes.to_vec());
+    appsrc.push_buffer(buffer)?;
+    appsrc.end_of_stream()?;
+
+    // 7. Calculate single frame byte size & pre-allocate output vector
+    let frame_size = (width * height * 3) as usize; // RGB = 3 bytes/pixel
+    let mut final_rgb_data = Vec::with_capacity(frame_size * 8 * 15); // Pre-reserve 15 seconds @ 8FPS
+
+    // 8. Pull frames from appsink
     while let Ok(sample) = appsink.pull_sample() {
         if let Some(sample_buffer) = sample.buffer() {
-            // Map the internal C-buffer elements directly into Rust safe memory spaces
             let map = sample_buffer
                 .map_readable()
                 .map_err(|_| anyhow!("Failed to map GStreamer buffer memory"))?;
@@ -68,43 +100,35 @@ pub fn decode_video_to_rgb(
         }
     }
 
-    // 9. Inspect the Bus to ensure the pipeline terminated due to normal EOS
-    // rather than an active parsing runtime error.
-    let bus = pipeline.bus().context("Pipeline contains no status bus")?;
-    if let Some(msg) = bus.pop_filtered(&[gst::MessageType::Error, gst::MessageType::Eos]) {
-        use gst::MessageView;
-        if let MessageView::Error(err) = msg.view() {
-            // Safe pipeline teardown before bubbling up the failure
-            let _ = pipeline.set_state(gst::State::Null);
-            return Err(anyhow!(
-                "GStreamer execution failure: {} ({:?})",
-                err.error(),
-                err.debug()
-            ));
+    // 9. Check Bus for runtime errors
+    if let Some(bus) = pipeline.bus() {
+        if let Some(msg) = bus.pop_filtered(&[gst::MessageType::Error, gst::MessageType::Eos]) {
+            if let gst::MessageView::Error(err) = msg.view() {
+                return Err(anyhow!(
+                    "GStreamer pipeline error: {} ({:?})",
+                    err.error(),
+                    err.debug()
+                ));
+            }
         }
     }
-
-    // 10. Tear down the structural pipeline components gracefully
-    pipeline.set_state(gst::State::Null)?;
 
     Ok(final_rgb_data)
 }
 
-fn main() {
-    let res = std::fs::read("./video.mp4");
-    match res {
-        Ok(o) => {
-            match decode_video_to_rgb(
-                /*video_bytes: Vec<u8> =*/ o,
-                /*size_x: u16 =*/ 1280 as u16,
-                /*size_y: u16 =*/ 720 as u16,
-            ) {
-                Ok(q) => {
-                    println!("{}", q.len());
-                }
-                Err(e) => {}
-            };
-        }
-        Err(e) => {}
-    };
+fn main() -> anyhow::Result<()> {
+    let video_bytes = std::fs::read("./video.mp4").context("Failed to read video file")?;
+
+    let rgb_data = decode_video_to_rgb(&video_bytes, 1280, 720)?;
+
+    let frame_bytes = (1280 * 720 * 3) as usize;
+    let total_frames = rgb_data.len() / frame_bytes;
+
+    println!(
+        "Decoded {} total bytes across {} frames.",
+        rgb_data.len(),
+        total_frames
+    );
+
+    Ok(())
 }
