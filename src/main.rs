@@ -26,7 +26,6 @@ impl VideoReader {
     }
 
     fn decode_video(&self, video_bytes: Vec<u8>) -> anyhow::Result<Vec<u8>> {
-        // fn decode_video(&self, video_bytes: &[u8]) -> anyhow::Result<Vec<u8>> {
         let pipeline = gst::parse::launch(&self.pipeline_str)?
             .dynamic_cast::<gst::Pipeline>()
             .map_err(|_| anyhow!("Failed to cast element to Pipeline"))?;
