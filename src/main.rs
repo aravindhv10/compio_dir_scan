@@ -164,9 +164,13 @@ pub fn decode_video_to_rgb(video_bytes: &[u8], width: u32, height: u32) -> anyho
 }
 
 fn main() -> anyhow::Result<()> {
+    let reader = VideoReader::new();
+
     let video_bytes = std::fs::read("./video.mp4").context("Failed to read video file")?;
 
-    let rgb_data = decode_video_to_rgb(&video_bytes, 1280, 720)?;
+    let decoded_frame = reader.decode_video(video_bytes)?;
+
+    // let rgb_data = decode_video_to_rgb(&video_bytes, 1280, 720)?;
 
     let frame_bytes = (1280 * 720 * 3) as usize;
     let total_frames = rgb_data.len() / frame_bytes;
