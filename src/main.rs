@@ -25,7 +25,40 @@ impl VideoReader {
         }
     }
 
-    fn decode_video() {}
+    fn decode_video(&self, video_bytes: Vec<u8>) -> anyhow::Result<Vec<u8>> {
+        let pipeline = gst::parse::launch(&self.pipeline_str)?
+            .dynamic_cast::<gst::Pipeline>()
+            .map_err(|_| anyhow!("Failed to cast element to Pipeline"))?;
+
+        let _guard = PipelineGuard(&pipeline);
+
+        // 4. Extract handles
+        let appsrc = pipeline
+            .by_name("mysrc")
+            .context("Failed to find appsrc")?
+            .dynamic_cast::<gst_app::AppSrc>()
+            .map_err(|_| anyhow!("Failed to cast to AppSrc"))?;
+
+        let appsink = pipeline
+            .by_name("mysink")
+            .context("Failed to find appsink")?
+            .dynamic_cast::<gst_app::AppSink>()
+            .map_err(|_| anyhow!("Failed to cast to AppSink"))?;
+
+        // 5. Start the pipeline FIRST
+        pipeline.set_state(gst::State::Playing)?;
+
+        let buffer = gst::Buffer::from_slice(video_bytes);
+
+        appsrc.push_buffer(buffer)?;
+        appsrc.end_of_stream()?;
+
+        // 7. Calculate single frame byte size & pre-allocate output vector
+        let frame_size = (width * height * 3) as usize; // RGB = 3 bytes/pixel
+        let mut final_rgb_data = Vec::with_capacity(frame_size * 8 * 15); // Pre-reserve 15 seconds @ 8FPS
+
+        Ok(())
+    }
 }
 
 pub fn decode_video_to_rgb(video_bytes: &[u8], width: u32, height: u32) -> anyhow::Result<Vec<u8>> {
