@@ -17,7 +17,7 @@ struct VideoReader {
 }
 
 impl VideoReader {
-    fn new() -> Self {
+    pub fn new() -> Self {
         let pipeline_str = include_str!("pipeline_str.txt").to_string();
 
         Self {
@@ -25,7 +25,7 @@ impl VideoReader {
         }
     }
 
-    fn decode_video(&self, video_bytes: Vec<u8>) -> anyhow::Result<Vec<u8>> {
+    pub fn decode_video(&self, video_bytes: Vec<u8>) -> anyhow::Result<Vec<u8>> {
         let pipeline = gst::parse::launch(&self.pipeline_str)?
             .dynamic_cast::<gst::Pipeline>()
             .map_err(|_| anyhow!("Failed to cast element to Pipeline"))?;
@@ -53,6 +53,8 @@ impl VideoReader {
         appsrc.end_of_stream()?;
 
         const FRAME_SIZE: usize = 1280 * 720 * 3;
+        const MIN_FRAMES: usize = 8 * 15;
+        const MIN_CAPACITY: usize = FRAME_SIZE * MIN_FRAMES;
         let mut final_rgb_data = Vec::with_capacity(FRAME_SIZE * 8 * 15); // Pre-reserve 15 seconds @ 8FPS
 
         // 8. Pull frames from appsink
