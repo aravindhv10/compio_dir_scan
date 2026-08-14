@@ -61,7 +61,7 @@ pub fn decode_video_to_rgb(video_bytes: &[u8], width: u32, height: u32) -> anyho
 
     // 7. Calculate single frame byte size & pre-allocate output vector
     let frame_size = (width * height * 3) as usize; // RGB = 3 bytes/pixel
-    let mut final_rgb_data = Vec::with_capacity(frame_size * 24); // Pre-reserve ~3 seconds @ 8FPS
+    let mut final_rgb_data = Vec::with_capacity(frame_size * 8 * 15); // Pre-reserve 15 seconds @ 8FPS
 
     // 8. Pull frames from appsink
     while let Ok(sample) = appsink.pull_sample() {
