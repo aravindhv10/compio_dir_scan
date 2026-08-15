@@ -1,3 +1,5 @@
+use std::io::Seek;
+
 fn ffmpeg_video_to_raw_stdin_stdout(
     fd_in: std::process::Stdio,
     fd_out: std::process::Stdio,
@@ -68,6 +70,8 @@ impl VideoReader {
         while res < data.len() {
             res += rustix::io::write(memfd.as_file(), &data[res..])?;
         }
+
+        memfd.as_file().seek(std::io::SeekFrom::Start(0))?;
 
         match ffmpeg_video_to_raw_stdin_stdout(
             std::process::Stdio::from(memfd.as_file().try_clone()?),
