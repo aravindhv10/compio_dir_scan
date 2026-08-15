@@ -5,6 +5,10 @@ fn ffmpeg_video_to_raw_stdin_stdout(
     fd_out: std::process::Stdio,
 ) -> anyhow::Result<std::process::ExitStatus> {
     let res = std::process::Command::new("ffmpeg")
+        // .arg("-init_hw_device")
+        // .arg("vulkan=vk:0")
+        // .arg("-hwaccel")
+        // .arg("vulkan")
         .arg("-y")
         .arg("-i")
         .arg("/dev/fd/0")
@@ -29,6 +33,10 @@ fn ffmpeg_video_to_raw_file_stdout(
     fd_out: std::process::Stdio,
 ) -> anyhow::Result<std::process::ExitStatus> {
     let res = std::process::Command::new("ffmpeg")
+        // .arg("-init_hw_device")
+        // .arg("vulkan=vk:0")
+        // .arg("-hwaccel")
+        // .arg("vulkan")
         .arg("-y")
         .arg("-i")
         .arg(path_in.as_ref())
