@@ -23,9 +23,22 @@ impl VideoReader {
         let pid = rustix::process::getpid();
         let fd = memfd.as_raw_fd();
         let fdpath = format!("/proc/{}/fd/{}", pid, fd);
-        println!("raw fd path = {}", fdpath);
-        std::thread::sleep(std::time::Duration::from_secs(1000));
-        println!("raw fd path = {}", fdpath);
+
+        let res = std::process::Command::new("ffmpeg")
+            .arg("-i")
+            .arg(fdpath)
+            .arg("-vf")
+            .arg("fps=8,scale=1280:720")
+            .arg("-nostdin")
+            .arg("-loglevel")
+            .arg("quiet")
+            .arg("-f")
+            .arg("rawvideo")
+            .arg("-pix_fmt")
+            .arg("rgb24")
+            .arg("./out.raw")
+            .status();
+
         let ret = Self::default();
         return Ok(ret);
     }
