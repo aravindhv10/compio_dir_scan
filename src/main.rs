@@ -1,4 +1,4 @@
-use std::{io::Write, os::fd::AsRawFd};
+use std::os::fd::AsRawFd;
 
 fn ffmpeg_video_to_raw(
     path_in: impl AsRef<std::path::Path>,
@@ -50,7 +50,10 @@ impl VideoReader {
         let out_memfd = self.opt.create(name.to_string() + "out")?;
         let out_fdpath = self.get_fd_path(out_memfd.as_raw_fd());
 
-        let _ = memfd.as_file().write_all(data)?;
+        let mut res: usize = 0;
+        while res < data.len() {
+            res += rustix::io::write(memfd.as_file(), &data[res..])?;
+        }
 
         match ffmpeg_video_to_raw(
             /*path_in: impl AsRef<std::path::Path> =*/ fdpath,
