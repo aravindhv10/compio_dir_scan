@@ -1,3 +1,5 @@
+use std::{io::Write, os::fd::AsRawFd};
+
 struct VideoReader {
     data: Vec<u8>,
 }
@@ -15,13 +17,23 @@ impl Default for VideoReader {
 }
 
 impl VideoReader {
-    fn from_slice(indata: &[u8]) -> anyhow::Result<Self> {
+    fn from_slice(indata: &[u8], name: &str) -> anyhow::Result<Self> {
+        let memfd = memfd::MemfdOptions::default().create(name)?;
+        memfd.as_file().write_all(indata);
+        std::thread::sleep(std::time::Duration::from_secs(1));
+        let out = memfd.as_raw_fd();
+        println!("raw fd = {}", out);
+        std::thread::sleep(std::time::Duration::from_secs(1000));
+        let out = memfd.as_raw_fd();
+        println!("raw fd = {}", out);
         let ret = Self::default();
-
         return Ok(ret);
     }
 }
 
-fn main() -> anyhow::Result<()> {
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    let buf = tokio::fs::read("./video.mp4").await?;
+    let res = VideoReader::from_slice(buf.as_slice(), "video.mp4");
     Ok(())
 }
