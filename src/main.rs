@@ -20,12 +20,12 @@ impl VideoReader {
     fn from_slice(indata: &[u8], name: &str) -> anyhow::Result<Self> {
         let memfd = memfd::MemfdOptions::default().create(name)?;
         memfd.as_file().write_all(indata);
-        std::thread::sleep(std::time::Duration::from_secs(1));
-        let out = memfd.as_raw_fd();
-        println!("raw fd = {}", out);
+        let pid = rustix::process::getpid();
+        let fd = memfd.as_raw_fd();
+        let fdpath = format!("/proc/{}/fd/{}", pid, fd);
+        println!("raw fd path = {}", fdpath);
         std::thread::sleep(std::time::Duration::from_secs(1000));
-        let out = memfd.as_raw_fd();
-        println!("raw fd = {}", out);
+        println!("raw fd path = {}", fdpath);
         let ret = Self::default();
         return Ok(ret);
     }
