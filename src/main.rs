@@ -18,11 +18,12 @@ impl Default for VideoReader {
 
 impl VideoReader {
     fn from_slice(indata: &[u8], name: &str) -> anyhow::Result<Self> {
-        let memfd = memfd::MemfdOptions::default().create(name)?;
-        memfd.as_file().write_all(indata);
         let pid = rustix::process::getpid();
+        let memfd = memfd::MemfdOptions::default().create(name)?;
         let fd = memfd.as_raw_fd();
         let fdpath = format!("/proc/{}/fd/{}", pid, fd);
+
+        memfd.as_file().write_all(indata);
 
         let res = std::process::Command::new("ffmpeg")
             .arg("-i")
