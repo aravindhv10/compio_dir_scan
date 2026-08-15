@@ -12,4 +12,5 @@ gstreamer = "0"
 gstreamer-app = "0"
 gstreamer-video = "0"
 jwalk = "0"
+rustix = { version = "1", features = ["all-apis", "linux_latest"] }
 tokio = { version = "1", features = ["full"] }
