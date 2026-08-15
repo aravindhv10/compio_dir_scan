@@ -1,4 +1,4 @@
-use std::os::fd::AsRawFd;
+use rustix::fd::AsRawFd;
 
 fn ffmpeg_video_to_raw(
     path_in: impl AsRef<std::path::Path>,
