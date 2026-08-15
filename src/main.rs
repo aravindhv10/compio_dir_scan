@@ -1,8 +1,30 @@
-use rustix::fd::AsRawFd;
+fn ffmpeg_video_to_raw_stdin_stdout(
+    fd_in: std::process::Stdio,
+    fd_out: std::process::Stdio,
+) -> anyhow::Result<std::process::ExitStatus> {
+    let res = std::process::Command::new("ffmpeg")
+        .arg("-y")
+        .arg("-i")
+        .arg("/dev/fd/0")
+        .arg("-vf")
+        .arg("fps=8,scale=1280:720")
+        .arg("-nostdin")
+        .arg("-loglevel")
+        .arg("quiet")
+        .arg("-f")
+        .arg("rawvideo")
+        .arg("-pix_fmt")
+        .arg("rgb24")
+        .arg("/dev/fd/1")
+        .stdin(fd_in)
+        .stdout(fd_out)
+        .status()?;
+    Ok(res)
+}
 
-fn ffmpeg_video_to_raw(
+fn ffmpeg_video_to_raw_file_stdout(
     path_in: impl AsRef<std::path::Path>,
-    path_out: impl AsRef<std::path::Path>,
+    fd_out: std::process::Stdio,
 ) -> anyhow::Result<std::process::ExitStatus> {
     let res = std::process::Command::new("ffmpeg")
         .arg("-y")
@@ -17,14 +39,14 @@ fn ffmpeg_video_to_raw(
         .arg("rawvideo")
         .arg("-pix_fmt")
         .arg("rgb24")
-        .arg(path_out.as_ref())
+        .arg("/dev/fd/1")
+        .stdout(fd_out)
         .status()?;
     Ok(res)
 }
 
 struct VideoReader {
     opt: memfd::MemfdOptions,
-    pid: rustix::process::Pid,
 }
 
 struct VideoReaderPayload {
@@ -35,29 +57,21 @@ impl VideoReader {
     fn new() -> Self {
         Self {
             opt: memfd::MemfdOptions::default(),
-            pid: rustix::process::getpid(),
         }
-    }
-
-    fn get_fd_path(&self, fd: i32) -> String {
-        format!("/proc/{}/fd/{}", self.pid, fd)
     }
 
     fn tensor_from_slice(&self, data: &[u8], name: &str) -> anyhow::Result<VideoReaderPayload> {
         let memfd = self.opt.create(name)?;
-        let fdpath = self.get_fd_path(memfd.as_raw_fd());
-
         let out_memfd = self.opt.create(name.to_string() + "out")?;
-        let out_fdpath = self.get_fd_path(out_memfd.as_raw_fd());
 
         let mut res: usize = 0;
         while res < data.len() {
             res += rustix::io::write(memfd.as_file(), &data[res..])?;
         }
 
-        match ffmpeg_video_to_raw(
-            /*path_in: impl AsRef<std::path::Path> =*/ fdpath,
-            /*path_out: impl AsRef<std::path::Path> =*/ out_fdpath,
+        match ffmpeg_video_to_raw_stdin_stdout(
+            std::process::Stdio::from(memfd.as_file().try_clone()?),
+            std::process::Stdio::from(out_memfd.as_file().try_clone()?),
         )?
         .code()
         {
@@ -81,11 +95,10 @@ impl VideoReader {
         name: &str,
     ) -> anyhow::Result<VideoReaderPayload> {
         let out_memfd = self.opt.create(name)?;
-        let out_fdpath = self.get_fd_path(out_memfd.as_raw_fd());
 
-        match ffmpeg_video_to_raw(
-            /*path_in: impl AsRef<std::path::Path> =*/ fdpath,
-            /*path_out: impl AsRef<std::path::Path> =*/ out_fdpath,
+        match ffmpeg_video_to_raw_file_stdout(
+            fdpath,
+            std::process::Stdio::from(out_memfd.as_file().try_clone()?),
         )?
         .code()
         {
